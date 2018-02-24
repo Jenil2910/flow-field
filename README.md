@@ -1,2 +1,2 @@
 # flow-field
-My own implementation of flow-fields.
+A starting flow-field implementation to upgrade it later for pathfinding.
