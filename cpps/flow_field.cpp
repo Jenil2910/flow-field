@@ -6,13 +6,18 @@
 #include<vector>
 #include<queue>
 #include<string>
+#include<RVO.h>
+#include<RVOSimulator.h>
+#include<Vector2.h>
 
 using namespace std;
 
 /*
 Tasks to-do: 
-1. BuildGrid and not use image.
-2. 
+1. BuildGrid and not use image. - Done
+2.  . . . . .
+	. . . O UP NOT UP-LEFT - Done
+3. Make cells classes
 */
 
 //SDL_Color textColor={0,0,0};
@@ -32,15 +37,28 @@ public:
 	~point();
 	int getx();
 	int gety();
+	void setx(int n);
+	void sety(int n);
 private:
 	int x;
 	int y;
 };
 
-int Dijikastra[V_CELLS][H_CELLS];
+class cell {
+	public:
+		int val;
+		int dir;
+};
+
+cell Dijikastra[V_CELLS][H_CELLS];
 queue<point> Queue;
 
-
+void point::setx(int n) {
+	x = n;
+}
+void point::sety(int n) {
+	y = n;
+}
 point::point(int a, int b) {
 	x = a;
 	y = b;
@@ -61,11 +79,23 @@ string goal_path = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudi
 string obstacle_path = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\obstacle.png"; //Should be png
 string probe_path = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\probe.png";
 string font_path = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\font.ttf";
+string arrow_left = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_left.bmp";
+string arrow_right = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_right.bmp";
+string arrow_up = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_up.bmp";
+string arrow_down = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_down.bmp";
+string arrow_top_left = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_top_left.bmp";
+string arrow_top_right = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_top_right.bmp";
+string arrow_bottom_left = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_bottom_left.bmp";
+string arrow_bottom_right = "C:\\Users\\ASUS\\Desktop\\Sem-4\\Openage\\Flow_field\\VStudio\\Project1\\Project1\\img\\arrow_bottom_right.bmp";
 
 
 SDL_Window* gWindow = NULL;
 SDL_Renderer* gBackground = NULL;
 TTF_Font* gFont = NULL;
+
+RVO::RVOSimulator* sim = new RVO::RVOSimulator();
+
+
 
 /*SDL_Surface* gBackground = NULL;
 SDL_Surface* gGoal = NULL;
@@ -87,6 +117,9 @@ class myTexture {
 
 		//Text Loader
 		bool textTextureLoader(string value, SDL_Color textColor);
+
+		//BMP Loader
+		bool bmpTextureLoader(string path);
 
 		//Dellocates texture
 		void free();
@@ -175,6 +208,52 @@ bool myTexture::pngTextureLoader(string path) {
 	return texture != NULL;
 }
 
+SDL_Surface* loadSurface(std::string path)
+{
+	//The final optimized image
+	SDL_Surface* optimizedSurface = NULL;
+
+	//Load image at specified path
+	SDL_Surface* loadedSurface = SDL_LoadBMP(path.c_str());
+	if (loadedSurface == NULL)
+	{
+		printf("Unable to load image %s! SDL Error: %s\n", path.c_str(), SDL_GetError());
+	}
+
+	return loadedSurface;
+}
+
+bool myTexture::bmpTextureLoader(string path) {
+
+	free();
+
+	SDL_Surface* loadBMP = loadSurface(path.c_str());
+	SDL_Texture* newTexture = NULL;
+
+	if (!loadBMP) {
+		cout << "SDL BMP image load failed: " << path.c_str() << " Error : " << SDL_GetError() << endl;
+	}
+	else {
+		//Color Keying
+		SDL_SetColorKey(loadBMP, SDL_TRUE, SDL_MapRGB(loadBMP->format, 0xFF, 0xFF, 0xFF));
+
+		//Texture
+		newTexture = SDL_CreateTextureFromSurface(gBackground, loadBMP);
+		if (!newTexture) {
+			cout << "Unable to Create Texture : " << path.c_str() << " Error : " << SDL_GetError() << endl;
+		}
+		else {
+			width = loadBMP->w;
+			height = loadBMP->h;
+		}
+
+		SDL_FreeSurface(loadBMP);
+	}
+
+	texture = newTexture;
+	return texture != NULL;
+}
+
 void myTexture::free() {
 	if (texture != NULL) {
 		SDL_DestroyTexture(texture);
@@ -201,8 +280,9 @@ int myTexture::getWidth() {
 
 myTexture gGoal;
 myTexture gObstacle;
+myTexture gProbe;
 myTexture gText;
-myTexture probe;
+myTexture gArrow;
 
 int goal_prev_x = -1;
 int goal_prev_y = -1;//Stores last goal coordinates
@@ -232,7 +312,7 @@ bool init() {
 		}
 		else
 		{
-			gBackground = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED );
+			gBackground = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED && SDL_RENDERER_PRESENTVSYNC );
 			if (!gBackground) {
 				cout << "Renderer Initialization Failed : " << "Error : " << SDL_GetError() <<endl;
 				success = false;
@@ -275,6 +355,11 @@ bool loadMedia() {
 		success = false;
 	}
 
+	if (!gProbe.pngTextureLoader(probe_path)) {
+		cout << "gGrid Load Failed, Error : " << SDL_GetError() << endl;
+		success = false;
+	}
+
 	gFont = TTF_OpenFont( font_path.c_str(), FONT_SIZE);
 	if (!gFont) {
 		cout << "Unable to load font Error : " << TTF_GetError() << endl;
@@ -288,8 +373,10 @@ bool loadMedia() {
 void close() {
 	
 	//Free loaded images
+	gArrow.free();
 	gGoal.free();
 	gObstacle.free();
+	gProbe.free();
 
 	//Free global font
 	TTF_CloseFont(gFont);
@@ -308,49 +395,22 @@ void close() {
 	SDL_Quit();
 }
 
-/*SDL_Surface* pngSurfaceLoader(string path) {
+void AddProbe(int x, int y) {
 
-	SDL_Surface* loadPNG = IMG_Load(path.c_str());
-	SDL_Surface* optimizedPng = NULL;
+	int cell_height = SCREEN_HEIGHT / V_CELLS;
+	int cell_width = SCREEN_WIDTH / H_CELLS;
 
-	if(!loadPNG){
-		cout << "SDL_image load failed: " << path.c_str() << " Error : " << IMG_GetError() << endl;
-	}
-	else {
-		optimizedPng = SDL_ConvertSurface(loadPNG, gBackground->format, NULL);
+	x = (x / cell_width)*cell_width;
+	y = (y / cell_height)*cell_height;
 
-		if (!optimizedPng) {
-			cout << "Unable to Optimize Surface : " << path.c_str() << " Error : " << SDL_GetError() << endl;
-		}
+	point* temp = new point(x, y);
 
-		SDL_FreeSurface(loadPNG);
-	}
+	probe_list.push_back(*temp);
 
-	return optimizedPng;
+	sim->addAgent(RVO::Vector2((float)x, (float)y));
 
+	return;
 }
-
-SDL_Texture* pngTextureLoader(string path) {
-
-	SDL_Surface* loadPNG = IMG_Load(path.c_str());
-	SDL_Texture* newTexture = NULL;
-
-	if (!loadPNG) {
-		cout << "SDL_image load failed: " << path.c_str() << " Error : " << IMG_GetError() << endl;
-	}
-	else {
-		newTexture = SDL_CreateTextureFromSurface(gBackground, loadPNG);
-
-		if (!newTexture) {
-			cout << "Unable to Create Texture : " << path.c_str() << " Error : " << SDL_GetError() << endl;
-		}
-
-		SDL_FreeSurface(loadPNG);
-	}
-
-	return newTexture;
-
-}*/
 
 void AddObstacle(int x, int y) {
 
@@ -368,7 +428,14 @@ void AddObstacle(int x, int y) {
 
 	obstacle_list.push_back(*temp);
 
-	Dijikastra[x / cell_width][y / cell_height] = -2;
+	std::vector<RVO::Vector2> obstacles;
+	obstacles.push_back(RVO::Vector2((float)x, (float)y));
+
+	sim->addObstacle(obstacles);
+
+	sim->processObstacles();
+
+	Dijikastra[x / cell_width][y / cell_height].val = -2;
 	//buildGrid(SCREEN_HEIGHT, SCREEN_WIDTH, H_CELLS, V_CELLS);
 
 	return;
@@ -428,12 +495,164 @@ void renderDijikastra() {
 	int cell_width = SCREEN_WIDTH / H_CELLS;
 	for (i = 0; i<V_CELLS; i++) {
 		for (j = 0; j<H_CELLS; j++) {
-			string number = to_string(Dijikastra[i][j]);
+			string number = to_string(Dijikastra[i][j].val);
 
 			SDL_Color textColor = { 0,0,0 };
 			gText.textTextureLoader(number, textColor);
 			gText.render(i*cell_width+(cell_width/4), j*cell_height);
 		}
+	}
+	return;
+}
+
+bool isvalid(int a, int b) {
+	bool success = true;
+	int cell_height = SCREEN_HEIGHT / V_CELLS;
+	int cell_width = SCREEN_WIDTH / H_CELLS;
+	int i = 0;
+	int l = obstacle_list.size();
+	//cout << l << endl;
+	while (i < l) {
+		//cout << "inside" << endl;
+		if (obstacle_list[i].getx()/cell_width == a && obstacle_list[i].gety()/cell_height == b) {
+			success = false;
+			break;
+		}
+		i++;
+	}
+	/*if (a == 0 && b == 0) {
+		cout << success << endl;
+	}*/
+	return success;
+}
+
+void giveDirection(int x, int y) {
+	int minx = -1;
+	int miny = -1;
+	Dijikastra[x][y].dir = 0;
+	
+	int D[8];
+	for (int y = 0;y<8;y++) {
+		D[y] = 1;
+	}
+
+	if (!isvalid(x-1,y-1)) {
+		D[7] = 0;
+		D[0] = 0;
+		D[1] = 0;
+	}
+	if (!isvalid(x - 1, y)) {
+		//D[0] = 0;
+		D[1] = 0;
+		//D[2] = 0;
+	}
+	if (!isvalid(x - 1, y + 1)) {
+		D[1] = 0;
+		D[2] = 0;
+		D[3] = 0;
+	}
+	if (!isvalid(x, y - 1)) {
+		//D[2] = 0;
+		D[3] = 0;
+		//D[4] = 0;
+	}
+	if (!isvalid(x, y + 1)) {
+		D[3] = 0;
+		D[4] = 0;
+		D[5] = 0;
+	}
+	if (!isvalid(x + 1, y - 1)) {
+		//D[4] = 0;
+		D[5] = 0;
+		//D[6] = 0;
+	}
+	if (!isvalid(x + 1, y)) {
+		D[5] = 0;
+		D[6] = 0;
+		D[7] = 0;
+	}
+	if (!isvalid(x + 1, y + 1)) {
+		//D[6] = 0;
+		D[7] = 0;
+		//D[0] = 0;
+	}
+
+	if ((x - 1 >= 0) && (y - 1 >= 0) && D[0] && ((minx == -1 && miny == -1) || (Dijikastra[x - 1][y - 1].val < Dijikastra[minx][miny].val))) {
+		minx = x - 1;
+		miny = y - 1;
+		Dijikastra[x][y].dir = 1;
+	}
+	if ((x - 1 >= 0) && (y  >= 0) && D[1] && ((minx == -1 && miny == -1) || (Dijikastra[x - 1][y].val<Dijikastra[minx][miny].val))) {
+		minx = x - 1;
+		miny = y;
+		Dijikastra[x][y].dir = 0;
+	}
+	if((x - 1 >= 0) && (y + 1 >= 0) && D[2] && ((minx == -1 && miny == -1) || (Dijikastra[x - 1][y + 1].val<Dijikastra[minx][miny].val))) {
+		minx = x - 1;
+		miny = y + 1;
+		Dijikastra[x][y].dir = 7;
+	}
+	if ((x>= 0) && (y - 1 >= 0) && D[3] && ((minx == -1 && miny == -1) || (Dijikastra[x][y - 1].val<Dijikastra[minx][miny].val))) {
+		minx = x;
+		miny = y - 1;
+		Dijikastra[x][y].dir = 2;
+	}
+	if ((x>= 0) && (y + 1 >= 0) && D[4] && ((minx == -1 && miny == -1) || (Dijikastra[x][y + 1].val<Dijikastra[minx][miny].val))) {
+		minx = x;
+		miny = y + 1;
+		Dijikastra[x][y].dir = 6;
+	}
+	if ((x + 1 >= 0) && (y + 1 >= 0) && D[5] && ((minx == -1 && miny == -1) || (Dijikastra[x + 1][y + 1].val<Dijikastra[minx][miny].val))) {
+		minx = x + 1;
+		miny = y + 1;
+		Dijikastra[x][y].dir = 5;
+	}
+	if ((x + 1 >= 0) && (y >= 0) && D[6] && ((minx == -1 && miny == -1) || (Dijikastra[x + 1][y].val<Dijikastra[minx][miny].val))) {
+		minx = x + 1;
+		miny = y;
+		Dijikastra[x][y].dir = 4;
+	}
+	if ((x + 1 >= 0) && (y - 1 >= 0) && D[7] && ((minx == -1 && miny == -1) || (Dijikastra[x + 1][y - 1].val<Dijikastra[minx][miny].val))) {
+		minx = x + 1;
+		miny = y - 1;
+		Dijikastra[x][y].dir = 3;
+	}
+
+	switch (Dijikastra[x][y].dir) {
+		case 0: gArrow.bmpTextureLoader(arrow_left); break;
+		case 1: gArrow.bmpTextureLoader(arrow_top_left); break;
+		case 2: gArrow.bmpTextureLoader(arrow_up); break;
+		case 3: gArrow.bmpTextureLoader(arrow_top_right); break;
+		case 4: gArrow.bmpTextureLoader(arrow_right); break;
+		case 5: gArrow.bmpTextureLoader(arrow_bottom_right); break;
+		case 6: gArrow.bmpTextureLoader(arrow_down); break;
+		case 7: gArrow.bmpTextureLoader(arrow_bottom_left); break;
+	}
+
+	return;
+}
+
+void updateDirection() {
+	int i, j;
+	for (i = 0; i<V_CELLS; i++) {
+		for (j = 0; j<H_CELLS; j++) {
+			giveDirection(i, j);
+		}
+		//cout << ((float)i / (float)V_CELLS) << "%" << endl;
+	}
+	return;
+}
+
+void renderArrows() {
+	int i, j;
+	int cell_height = SCREEN_HEIGHT / V_CELLS;
+	int cell_width = SCREEN_WIDTH / H_CELLS;
+	for (i = 0; i<V_CELLS; i++) {
+		for (j = 0; j<H_CELLS; j++) {
+			gArrow.free();
+			gArrow.render(i*cell_width, j*cell_height);
+		}
+		//cout << ((float)i / (float)V_CELLS) << "%" << endl;
 	}
 	return;
 }
@@ -450,13 +669,13 @@ void resetDijikastra() {
 	for (i = 0;i<V_CELLS;i++) {
 		for (j = 0;j<H_CELLS;j++) {
 			if (i == (goal_prev_x/cell_width) && j == (goal_prev_y/cell_height)) {
-				Dijikastra[i][j] = 0;
+				Dijikastra[i][j].val = 0;
 				//cout << "Dijikastra["<<i<<"]["<<j<<"] = "<< Dijikastra[i][j] << endl;
 				while (!Queue.empty()) { Queue.pop(); };//clear the queue
 				point* goal_coordinates = new point(i,j);
 				Queue.push(*goal_coordinates);   
-			}else if (Dijikastra[i][j]!=-2) {
-				Dijikastra[i][j] = -1;
+			}else if (Dijikastra[i][j].val!=-2) {
+				Dijikastra[i][j].val = -1;
 			}
 		}
 	}
@@ -464,8 +683,8 @@ void resetDijikastra() {
 }//Only resets the reachable positions.
 
 void updatePoint(int x, int y, int distance) {
-	if (x>=0 && x<=H_CELLS && y>=0 && y<=V_CELLS && Dijikastra[x][y]==-1) {
-		Dijikastra[x][y] = distance + 1;
+	if (x>=0 && x<=H_CELLS && y>=0 && y<=V_CELLS && Dijikastra[x][y].val==-1) {
+		Dijikastra[x][y].val = distance + 1;
 		point* temp = new point(x,y);
 		Queue.push(*temp);
 	}
@@ -484,10 +703,10 @@ void performNextStepDijikastra() {
 		point p = Queue.front();
 		//cout << "goal : " << "( " << p.getx() << " , " << p.gety() << " ) -> "<< Dijikastra[0][0] << endl;
 		Queue.pop();
-		updatePoint(p.getx()-1, p.gety(), Dijikastra[p.getx()][p.gety()]);
-		updatePoint(p.getx(), p.gety()-1, Dijikastra[p.getx()][p.gety()]);
-		updatePoint(p.getx()+1, p.gety(), Dijikastra[p.getx()][p.gety()]);
-		updatePoint(p.getx(), p.gety()+1, Dijikastra[p.getx()][p.gety()]);
+		updatePoint(p.getx()-1, p.gety(), Dijikastra[p.getx()][p.gety()].val);
+		updatePoint(p.getx(), p.gety()-1, Dijikastra[p.getx()][p.gety()].val);
+		updatePoint(p.getx()+1, p.gety(), Dijikastra[p.getx()][p.gety()].val);
+		updatePoint(p.getx(), p.gety()+1, Dijikastra[p.getx()][p.gety()].val);
 		return;
 	}
 }
@@ -498,8 +717,113 @@ void buildDijikastra() {
 	}
 }
 
+//RVO Part of the code
 
+void rvoSetupScenario(RVO::RVOSimulator* sim) {
+	
+	AddProbe(0, 0);
+	AddProbe(300, 300);
+	AddProbe(50, 20);
+	AddProbe(10, 60);
+	AddProbe(370, 480);
+	AddProbe(500, 250);
+	AddProbe(9, 0);
+	AddProbe(300, 320);
+	AddProbe(500, 210);
+	AddProbe(90, 0);
+	AddProbe(3, 390);
+	AddProbe(0, 230);
 
+	sim->setTimeStep(5.0f);
+
+	sim->setAgentDefaults(15.0f, 10, 5.0f, 10.0f, 1.0f, 3.0f);
+
+	int i = 0;
+	int l = probe_list.size();
+	while (i < l) {
+		sim->addAgent(RVO::Vector2((float)probe_list[i].getx(), (float)probe_list[i].gety()));
+		i++;
+	}
+
+	return;
+
+}
+
+void rvoSetPreferredVelocities(RVO::RVOSimulator* sim) {
+	// Set the preferred velocity for each agent.
+	size_t i = 0;
+	for (; i < sim->getNumAgents(); i++) {
+		int x = (int)sim->getAgentPosition(i).x();
+		int y = (int)sim->getAgentPosition(i).y();
+
+		if (x <= 0) {
+			x = 0;
+			if (y <= 0) {
+				y = 0;
+			}
+			else if(y>=SCREEN_HEIGHT){
+				y = SCREEN_HEIGHT;
+			}
+			//continue;
+		}
+		else if ( x >= SCREEN_WIDTH) {
+			x = SCREEN_WIDTH;
+			if (y <= 0) {
+				y = 0;
+			}
+			else if (y>=SCREEN_HEIGHT) {
+				y = SCREEN_HEIGHT;
+			}
+			//continue;
+		}
+
+		int cell_height = SCREEN_HEIGHT / V_CELLS;
+		int cell_width = SCREEN_WIDTH / H_CELLS;
+
+		switch (Dijikastra[x/cell_width][y/cell_height].dir) {
+			case 0:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(-1.0f, 0.0f))); break;
+			case 1:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(-1.0f, -1.0f))); break;
+			case 2:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(0.0f, -1.0f))); break;
+			case 3:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(1.0f, -1.0f))); break;
+			case 4:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(1.0f, 0.0f)));  break;
+			case 5:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(1.0f, 1.0f))); break;
+			case 6:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(0.0f, 1.0f))); break;
+			case 7:	sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(-1.0f, 1.0f))); break;
+			default: sim->setAgentPrefVelocity(i, 5*normalize(RVO::Vector2(0.0f, 0.0f))); break;
+		}
+		//sim->setAgentMaxSpeed(i, 1.1f);
+	}
+
+	return;
+}
+
+bool reachedGoal(RVO::RVOSimulator* sim) {
+
+	bool success = true;
+
+	for (size_t i = 0;i<sim->getNumAgents();i++) {
+		int x = (int)sim->getAgentPosition(i).x();
+		int y = (int)sim->getAgentPosition(i).y();
+		if (absSq(RVO::Vector2((float)goal_prev_x, (float)goal_prev_y) - sim->getAgentPosition(i)) > sim->getAgentRadius(i) * sim->getAgentRadius(i)) {
+			success = false;
+			break;
+		}
+	}
+
+	return success;
+}
+
+void rvoUpdateVisualization(RVO::RVOSimulator* sim) {
+
+	size_t i = 0;
+	size_t l = sim->getNumAgents();
+	for (; i < l ; i++) {
+		RVO::Vector2 vec = sim->getAgentPosition(i);
+		probe_list[i].setx((int)vec.x());
+		probe_list[i].sety((int)vec.y());
+	}
+	
+}
 
 //End of Algorithmic Part
 
@@ -513,13 +837,18 @@ int main(int argc, char* args[]) {
 			cout << "Load Media Failed" << endl;
 		}
 		else {
+			//Initial part for adding probes and all that...
 
-
+			
 			SDL_Event e;
+			rvoSetupScenario(sim);
+
 			bool quit = false;
 			//int loop = 0;
 			while (!quit) {
 				//cout << loop++ << endl;
+				//loop++;
+
 
 				while (SDL_PollEvent(&e)) {
 
@@ -538,23 +867,40 @@ int main(int argc, char* args[]) {
 				//End of Event Handling
 
 				resetDijikastra();
-				if (goal_prev_x>=0 && goal_prev_y>=0) {
+				if (goal_prev_x >= 0 && goal_prev_y >= 0) {
 					buildDijikastra();
 				}
-				
+
+				updateDirection();
+
+
 				//End of logic
 				SDL_RenderClear(gBackground);
 
 				SDL_SetRenderDrawColor(gBackground, 0x00, 0x00, 0x00, 0x00);
-				buildGrid(SCREEN_HEIGHT, SCREEN_WIDTH, H_CELLS, V_CELLS);
+				//buildGrid(SCREEN_HEIGHT, SCREEN_WIDTH, H_CELLS, V_CELLS);
 
-				int i = 0;
+				size_t i = 0;
 				while (i < obstacle_list.size()) {
 					gObstacle.render(obstacle_list[i].getx(), obstacle_list[i].gety());
 					i++;
 				}
 
-				renderDijikastra();
+				//renderDijikastra();
+				//renderArrows();
+
+				if (!reachedGoal(sim)) {
+					//cout << "not reached" << endl;
+					rvoSetPreferredVelocities(sim);
+					sim->doStep();
+				}
+				rvoUpdateVisualization(sim);
+
+				size_t u = 0;
+				while (u < probe_list.size()) {
+					gProbe.render(probe_list[u].getx(), probe_list[u].gety());
+					u++;
+				}
 
 				if (goal_prev_x>=0&&goal_prev_y>=0) {
 					gGoal.render(goal_prev_x, goal_prev_y);
