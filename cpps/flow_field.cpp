@@ -660,11 +660,8 @@ void renderArrows() {
 
 
 void resetDijikastra() {
-	//cout << "resetting..." << endl;
-	//cout << "goal_prev : " << "( " << goal_prev_x << " , " << goal_prev_y << " )  " << endl;
 	int cell_width = CELL_WIDTH;
 	int cell_height = CELL_HEIGHT;
-	//cout << "ij : " << "( " << (goal_prev_x / cell_width) << " , " << (goal_prev_y / cell_height) << " )" << endl;
 	int i,j;
 	for (i = 0;i<V_CELLS;i++) {
 		for (j = 0;j<H_CELLS;j++) {
@@ -819,6 +816,8 @@ void rvoUpdateVisualization(RVO::RVOSimulator* sim) {
 	size_t l = sim->getNumAgents();
 	for (; i < l ; i++) {
 		RVO::Vector2 vec = sim->getAgentPosition(i);
+		//cout << vec << endl;
+		//cout << "probe_list_size is: " << probe_list.size() << endl;
 		probe_list[i].setx((int)vec.x());
 		probe_list[i].sety((int)vec.y());
 	}
